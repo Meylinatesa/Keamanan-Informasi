@@ -3,7 +3,6 @@ import threading
 import sys
 import secrets
 
-# ============= RSA Implementation for Key Exchange =============
 class RSA:
     """Simple RSA implementation for key exchange"""
     
@@ -14,7 +13,6 @@ class RSA:
         return pow(plaintext, e, n)
 
 
-# ============= DES Implementation (Original) =============
 class DES:
     IP = [58, 50, 42, 34, 26, 18, 10, 2,
           60, 52, 44, 36, 28, 20, 12, 4,
@@ -213,7 +211,7 @@ class DESChatClient:
     def __init__(self, host, port, key=None):
         self.host = host
         self.port = port
-        self.key = key  # Will be generated and exchanged via RSA if None
+        self.key = key  
         self.socket = None
         self.running = False
         print(f"📱 Client initialized for {host}:{port}")
@@ -221,7 +219,6 @@ class DESChatClient:
     def exchange_keys(self):
         """Perform RSA key exchange to establish DES secret key"""
         try:
-            # Receive RSA public key from server
             length_data = self.socket.recv(4)
             key_length = int.from_bytes(length_data, byteorder='big')
             
@@ -232,7 +229,6 @@ class DESChatClient:
                     raise Exception("Connection lost during key exchange")
                 public_key_data += chunk
             
-            # Parse RSA public key
             e_str, n_str = public_key_data.decode('utf-8').split(',')
             e = int(e_str)
             n = int(n_str)
@@ -240,15 +236,12 @@ class DESChatClient:
             
             print(f"📥 Received RSA public key from server")
             
-            # Generate random DES key (64-bit)
             self.key = secrets.randbits(64)
             print(f"🔑 Generated DES secret key: {hex(self.key)}")
             
-            # Encrypt DES key with RSA public key
             encrypted_des_key = RSA.encrypt(self.key, rsa_public_key)
             print(f"🔒 Encrypted DES key with RSA")
             
-            # Send encrypted DES key to server
             encrypted_key_data = encrypted_des_key.to_bytes((encrypted_des_key.bit_length() + 7) // 8, byteorder='big')
             msg_length = len(encrypted_key_data).to_bytes(4, byteorder='big')
             self.socket.sendall(msg_length + encrypted_key_data)
@@ -277,7 +270,6 @@ class DESChatClient:
             
             print(f"✅ Connected to server!")
             
-            # Perform RSA key exchange if no key provided
             if not self.key:
                 print("=" * 60)
                 if not self.exchange_keys():
@@ -378,7 +370,6 @@ if __name__ == "__main__":
     port = input("Enter port (default 5555): ").strip()
     port = int(port) if port else 5555
     
-    # Ask if user wants RSA key exchange or manual key
     mode = input("Use RSA key exchange? (Y/n): ").strip().lower()
     
     key = None

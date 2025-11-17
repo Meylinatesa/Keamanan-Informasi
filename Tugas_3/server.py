@@ -3,7 +3,6 @@ import threading
 import sys
 import secrets
 
-# ============= RSA Implementation for Key Exchange =============
 class RSA:
     """Simple RSA implementation for key exchange"""
     
@@ -92,7 +91,6 @@ class RSA:
         d, n = private_key
         return pow(ciphertext, d, n)
 
-# ============= DES Implementation (Original) =============
 class DES:
     IP = [58, 50, 42, 34, 26, 18, 10, 2,
           60, 52, 44, 36, 28, 20, 12, 4,
@@ -291,7 +289,7 @@ class DESChatServer:
     def __init__(self, host='0.0.0.0', port=5555, key=None):
         self.host = host
         self.port = port
-        self.key = key  # Will be established via RSA if None
+        self.key = key  
         self.server_socket = None
         self.client_socket = None
         self.running = False
@@ -301,10 +299,8 @@ class DESChatServer:
     def exchange_keys(self):
         """Perform RSA key exchange to establish DES secret key"""
         try:
-            # Generate RSA key pair
             self.rsa_public_key, self.rsa_private_key = RSA.generate_keypair(bits=1024)
             
-            # Send RSA public key to client
             e, n = self.rsa_public_key
             public_key_data = f"{e},{n}".encode('utf-8')
             key_length = len(public_key_data).to_bytes(4, byteorder='big')
@@ -312,7 +308,6 @@ class DESChatServer:
             
             print(f"📤 Sent RSA public key to client")
             
-            # Receive encrypted DES key from client
             length_data = self.client_socket.recv(4)
             msg_length = int.from_bytes(length_data, byteorder='big')
             
@@ -323,7 +318,6 @@ class DESChatServer:
                     raise Exception("Connection lost during key exchange")
                 encrypted_key_data += chunk
             
-            # Decrypt DES key using RSA private key
             encrypted_des_key = int.from_bytes(encrypted_key_data, byteorder='big')
             print(f"📥 Received encrypted DES key")
             
@@ -362,7 +356,6 @@ class DESChatServer:
             self.client_socket, addr = self.server_socket.accept()
             print(f"✅ Client connected from {addr[0]}:{addr[1]}")
             
-            # Perform RSA key exchange if no key provided
             if not self.key:
                 print("=" * 60)
                 if not self.exchange_keys():
@@ -457,7 +450,6 @@ if __name__ == "__main__":
     port = input("Enter port (default 5555): ").strip()
     port = int(port) if port else 5555
     
-    # Ask if user wants RSA key exchange or manual key
     mode = input("Use RSA key exchange? (Y/n): ").strip().lower()
     
     key = None
