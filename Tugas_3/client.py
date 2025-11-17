@@ -1,7 +1,20 @@
 import socket
 import threading
 import sys
+import secrets
 
+# ============= RSA Implementation for Key Exchange =============
+class RSA:
+    """Simple RSA implementation for key exchange"""
+    
+    @staticmethod
+    def encrypt(plaintext, public_key):
+        """Encrypt integer with RSA public key"""
+        e, n = public_key
+        return pow(plaintext, e, n)
+
+
+# ============= DES Implementation (Original) =============
 class DES:
     IP = [58, 50, 42, 34, 26, 18, 10, 2,
           60, 52, 44, 36, 28, 20, 12, 4,
@@ -196,34 +209,84 @@ class DES:
         return bytes(plaintext)
 
 
-class DESChatServer:
-    def __init__(self, host='0.0.0.0', port=5555, key=0x133457799BBCDFF1):
+class DESChatClient:
+    def __init__(self, host, port, key=None):
         self.host = host
         self.port = port
-        self.key = key
-        self.server_socket = None
-        self.client_socket = None
+        self.key = key  # Will be generated and exchanged via RSA if None
+        self.socket = None
         self.running = False
+        print(f"📱 Client initialized for {host}:{port}")
         
-    def start(self):
-        """Start the server"""
+    def exchange_keys(self):
+        """Perform RSA key exchange to establish DES secret key"""
         try:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind((self.host, self.port))
-            self.server_socket.listen(1)
+            # Receive RSA public key from server
+            length_data = self.socket.recv(4)
+            key_length = int.from_bytes(length_data, byteorder='big')
+            
+            public_key_data = b''
+            while len(public_key_data) < key_length:
+                chunk = self.socket.recv(key_length - len(public_key_data))
+                if not chunk:
+                    raise Exception("Connection lost during key exchange")
+                public_key_data += chunk
+            
+            # Parse RSA public key
+            e_str, n_str = public_key_data.decode('utf-8').split(',')
+            e = int(e_str)
+            n = int(n_str)
+            rsa_public_key = (e, n)
+            
+            print(f"📥 Received RSA public key from server")
+            
+            # Generate random DES key (64-bit)
+            self.key = secrets.randbits(64)
+            print(f"🔑 Generated DES secret key: {hex(self.key)}")
+            
+            # Encrypt DES key with RSA public key
+            encrypted_des_key = RSA.encrypt(self.key, rsa_public_key)
+            print(f"🔒 Encrypted DES key with RSA")
+            
+            # Send encrypted DES key to server
+            encrypted_key_data = encrypted_des_key.to_bytes((encrypted_des_key.bit_length() + 7) // 8, byteorder='big')
+            msg_length = len(encrypted_key_data).to_bytes(4, byteorder='big')
+            self.socket.sendall(msg_length + encrypted_key_data)
+            
+            print(f"📤 Sent encrypted DES key to server")
+            print(f"✅ Secure key exchange completed!")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Key exchange failed: {e}")
+            return False
+        
+    def connect(self):
+        """Connect to the server"""
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            
+            print("=" * 60)
+            print("📱 DES ENCRYPTED CHAT CLIENT")
+            print("=" * 60)
+            print(f"🔌 Connecting to {self.host}:{self.port}...")
+            
+            self.socket.connect((self.host, self.port))
             self.running = True
             
-            print("=" * 60)
-            print("🖥️  DES ENCRYPTED CHAT SERVER")
-            print("=" * 60)
-            print(f"✅ Server started on {self.host}:{self.port}")
-            print(f"🔑 DES Key: {hex(self.key)}")
-            print(f"⏳ Waiting for client connection...")
-            print("=" * 60)
+            print(f"✅ Connected to server!")
             
-            self.client_socket, addr = self.server_socket.accept()
-            print(f"✅ Client connected from {addr[0]}:{addr[1]}")
+            # Perform RSA key exchange if no key provided
+            if not self.key:
+                print("=" * 60)
+                if not self.exchange_keys():
+                    print("❌ Failed to establish secure connection")
+                    return
+            else:
+                print(f"🔑 DES Key: {hex(self.key)} (pre-shared)")
+            
+            print("=" * 60)
             print("💬 Chat started! Type your messages below:")
             print("=" * 60)
             
@@ -233,16 +296,18 @@ class DESChatServer:
             
             self.send_messages()
             
+        except ConnectionRefusedError:
+            print(f"❌ Connection refused. Make sure server is running on {self.host}:{self.port}")
         except Exception as e:
             print(f"❌ Error: {e}")
         finally:
-            self.stop()
+            self.disconnect()
     
     def receive_messages(self):
-        """Receive and decrypt messages from client"""
+        """Receive and decrypt messages from server"""
         while self.running:
             try:
-                length_data = self.client_socket.recv(4)
+                length_data = self.socket.recv(4)
                 if not length_data:
                     break
                     
@@ -250,7 +315,7 @@ class DESChatServer:
                 
                 encrypted = b''
                 while len(encrypted) < msg_length:
-                    chunk = self.client_socket.recv(msg_length - len(encrypted))
+                    chunk = self.socket.recv(msg_length - len(encrypted))
                     if not chunk:
                         break
                     encrypted += chunk
@@ -258,12 +323,10 @@ class DESChatServer:
                 if not encrypted:
                     break
                 
-                print("Encryp: ", encrypted)
                 decrypted = DES.decrypt(encrypted, self.key)
-                print("Decryp: ", decrypted)
                 message = decrypted.decode('utf-8')
                 
-                print(f"\n📩 Client: {message}")
+                print(f"\n📩 Server: {message}")
                 print("You: ", end='', flush=True)
                 
             except Exception as e:
@@ -271,11 +334,11 @@ class DESChatServer:
                     print(f"\n❌ Error receiving message: {e}")
                 break
         
-        print("\n🔴 Client disconnected")
+        print("\n🔴 Disconnected from server")
         self.running = False
     
     def send_messages(self):
-        """Send encrypted messages to client"""
+        """Send encrypted messages to server"""
         try:
             while self.running:
                 message = input("You: ")
@@ -288,38 +351,45 @@ class DESChatServer:
                     encrypted = DES.encrypt(message.encode('utf-8'), self.key)
                     
                     msg_length = len(encrypted).to_bytes(4, byteorder='big')
-                    self.client_socket.sendall(msg_length + encrypted)
+                    self.socket.sendall(msg_length + encrypted)
                     
         except KeyboardInterrupt:
-            print("\n\n👋 Server shutting down...")
+            print("\n\n👋 Client closing...")
         except Exception as e:
             print(f"\n❌ Error sending message: {e}")
     
-    def stop(self):
-        """Stop the server"""
+    def disconnect(self):
+        """Disconnect from server"""
         self.running = False
-        if self.client_socket:
-            self.client_socket.close()
-        if self.server_socket:
-            self.server_socket.close()
-        print("🛑 Server stopped")
+        if self.socket:
+            self.socket.close()
+        print("🛑 Client disconnected")
 
 
 if __name__ == "__main__":
     print("\n" + "=" * 60)
-    print("🔐 DES ENCRYPTED CHAT - SERVER MODE")
+    print("🔐 DES ENCRYPTED CHAT - CLIENT MODE")
     print("=" * 60)
+    
+    host = input("Enter server IP address (default localhost): ").strip()
+    if not host:
+        host = "localhost"
     
     port = input("Enter port (default 5555): ").strip()
     port = int(port) if port else 5555
     
-    key_input = input("Enter DES key in hex (default 133457799BBCDFF1): ").strip()
-    key = int(key_input, 16) if key_input else 0x133457799BBCDFF1
+    # Ask if user wants RSA key exchange or manual key
+    mode = input("Use RSA key exchange? (Y/n): ").strip().lower()
     
-    server = DESChatServer(port=port, key=key)
+    key = None
+    if mode == 'n':
+        key_input = input("Enter DES key in hex (default 133457799BBCDFF1): ").strip()
+        key = int(key_input, 16) if key_input else 0x133457799BBCDFF1
+    
+    client = DESChatClient(host=host, port=port, key=key)
     
     try:
-        server.start()
+        client.connect()
     except KeyboardInterrupt:
-        print("\n\n👋 Server interrupted by user")
-        server.stop()
+        print("\n\n👋 Client interrupted by user")
+        client.disconnect()
